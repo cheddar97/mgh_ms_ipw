@@ -1,0 +1,206 @@
+---
+title: "Merge Data Sets"
+author: "Raphael Scheu, MD"
+date: "2025-08-12"
+format:
+  html:
+    embed-resources: true
+    toc: true
+    toc-location: left
+    toc-title: "Table of Contents"
+    toc-numbering: true
+    number-sections: true
+editor_options: 
+  chunk_output_type: console
+---
+
+```{=html}
+<style>
+body {
+text-align: justify}
+</style>
+```
+
+```{r, echo = FALSE}
+knitr::opts_chunk$set(message = FALSE)
+knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+options(scipen = 999)
+```
+
+# Purpose of Script
+* Some general clean-ups
+* Merge the data sets for treatment and control group.
+* This is necessary for statistical analysis, as they both should contain the same variables.
+* Furthermore, merging early on simplifies analysis, because subsequent scripts have to be run on a single data set only.
+
+# Load Data and Libraries
+
+```{r}
+library(librarian)
+shelf(
+  data.table,
+  tidytable
+)
+```
+
+```{r}
+fc_read_data <- function(filepath) {
+  data <- read.csv(
+    file = filepath,
+    na.strings = c("", "NA", "N/A", "N/a", "n/a", "na")
+    ) |>
+    as.data.table() |>
+    filter(!is.na(Date.of.Entry)) |>
+    rename_with(tolower)
+  return(data)
+}
+
+data_raw_ocrevus <- fc_read_data("./1 data/1.1 raw/data_treat.csv")
+data_raw_control <- fc_read_data("./1 data/1.1 raw/data_control.csv")
+```
+
+The column names are set to lower case for easier handling. At a later stage of this cleaning script, the columns' contents will also be set to lower case.
+
+# Rename Columns
+
+## In Both Data Sets
+
+Unnecessary age columns are deleted.
+Only `age_updated` is kept, but it's renamed into `age` for easier handling.
+
+```{r}
+fc_del_age <- function(data) {
+  data |>
+    select(-any_of(c("age", "age.1"))) |>
+    rename(age = "age_updated")
+}
+
+data_ocre <- data_raw_ocrevus |> fc_del_age()
+data_cont <- data_raw_control |> fc_del_age()
+```
+
+Then, columns which appear in both data sets are renamed for easier handling.
+
+```{r}
+fc_rename_both <- function(data) {
+  data |>
+    rename(
+      date.of.birth = dob..ddmmmyyyyy.,
+      current.ms.phenotype = current.ms.phenotype..e.g..rrms..ppms..spms..cis.,
+      no.of.prior.therapies = x..of.previous.therapy,
+      jcv.antibody.status = jcv.antibody.status..titer.,
+      censoring.date = censoring.date..moved..died..etc..,
+    )
+}
+
+data_ocre <- data_ocre |> fc_rename_both()
+data_cont <- data_cont |> fc_rename_both()
+```
+
+Double full-stops are replaced by a single full-stop.
+
+```{r}
+fc_dots <- function(data) {
+  setNames(data, gsub("\\.\\.", "\\.", names(data)))
+}
+
+data_ocre <- data_ocre |> fc_dots()
+data_cont <- data_cont |> fc_dots()
+```
+
+Define the treatment group.
+
+```{r}
+fc_treat_group <- function(data, group) {
+  data |>
+    mutate(treatment.group = group)
+}
+
+data_ocre <- data_ocre |> fc_treat_group(1L)
+data_cont <- data_cont |> fc_treat_group(0L)
+```
+
+## Ocrevus Data
+
+* Make some column names a bit simpler.
+* Important changes for x columns, in order to have the same column names as the control group.
+  + `date.of.first.ocrelizumab` is now `date.of.current.therapy.start`
+  + `date.of.last.ocrelizumab.most.recent.dose.` is now `date.of.most.recent.dose`
+  + `infections.during.ocrelizumab.` is now `infections.on.current.therapy`
+  + `date.of.infection.during.ocrelizumab` is now `date.of.infection.on.current.therapy`
+  + `igg.levels.serum.while.on.ocrelizumab` is now `igg.levels.on.current.therapy`
+  + `was.ocrelizumab.discontinued.` is now `therapy.discontinued`
+  + `if.switch.off.of.ocrelizumab.what.was.the.switch.dmt` is now `discontinued.for.dmt`
+  + `no.ocrelizumab.cycles.first.two.doses.count.as.one.cycle.` is now `no.therapy.cycles`
+
+```{r}
+data_ocre <- data_ocre |>
+  rename(
+    date.of.current.therapy.start = date.of.first.ocrelizumab,
+    date.of.most.recent.dose = date.of.last.ocrelizumab.most.recent.dose.,
+    no.therapy.cycles  = no.ocrelizumab.cycles.first.two.doses.count.as.one.cycle.,
+    igg.levels.on.current.therapy = igg.levels.serum.while.on.ocrelizumab,
+    discontinued.for.dmt = if.switch.off.of.ocrelizumab.what.was.the.switch.dmt,
+    infections.on.current.therapy = infections.during.ocrelizumab.,
+    date.of.infection.on.current.therapy = date.of.infection.during.ocrelizumab,
+    therapy.discontinued = was.ocrelizumab.discontinued.,
+    igg.levels.on.current.therapy = igg.levels.serum.while.on.ocrelizumab,
+    qualitative.remarks = qualitiatve.remarks.e.g.reason.for.ocrelizumab.discontinuation.
+  ) |>
+  mutate(name.of.current.therapy = "ocrevus")
+```
+
+## Control Group Data
+
+```{r}
+data_cont <- data_cont |>
+  rename(
+    mrn = epic_pmrn,
+    discontinued.for.dmt = if.switch.off.of.most.recent.therapy.what.was.the.switch.dmt,
+    infections.on.current.therapy = infections.during.current.therapy.,
+    date.of.infection.on.current.therapy = date.of.infection.during.current.therapy,
+    igg.levels.on.current.therapy = igg.levels.serum.while.on.current.therapy,
+    therapy.discontinued = was.therapy.discontinued.,
+    date.of.most.recent.dose = date.of.last.therapy.dose,
+    qualitative.remarks = qualitative.remarks.e.g.reason.for.most.recent.therapy.discontinuation.
+  )
+```
+
+```{r, echo = F, eval = F}
+fc_compare_colnames <- function(df1, df2) {
+  all_names <- union(colnames(df1), colnames(df2))
+  
+  data.frame(
+    column_name = all_names,
+    in_df1      = all_names %in% colnames(df1),
+    in_df2      = all_names %in% colnames(df2),
+    label       = ifelse(all_names %in% colnames(df1) & all_names %in% colnames(df2), "both",
+                         ifelse(all_names %in% colnames(df1), "ocrevus", "control")),
+    stringsAsFactors = FALSE
+  )
+}
+
+df_compare <- fc_compare_colnames(data_ocre, data_cont)
+```
+
+# Merge Datasets
+
+The data set is merged by binding their rows together. The original data sets are easily identifiable by the variable `treatment.group`.
+
+```{r}
+data <- bind_rows(data_ocre, data_cont)
+```
+
+# Export Data
+
+```{r}
+saveRDS(
+  object = data,
+  file = "./1 data/1.1 raw/data_merged.RDS"
+)
+
+write.csv(
+  data,
+  file = "./1 data/1.1 raw/data_merged.csv"
+)
+```
