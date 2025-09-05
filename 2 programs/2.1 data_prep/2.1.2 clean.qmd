@@ -315,7 +315,8 @@ data <- data |>
 
 ## Binary Infection
 
-* What to do with NAs?
+* 6 cases have `NA` in all infection related fields.
+* These are assumed to have `0` infection events.
 
 ```{r}
 data <- data |>
@@ -327,7 +328,11 @@ data <- data |>
       str_detect(infections.on.current.therapy, "infect") ~ "1",
       TRUE ~ infections.on.current.therapy
     ),
-    infection.binary = as.integer(infection.binary)
+    infection.binary = as.integer(infection.binary),
+    infection.binary = fifelse(
+      is.na(infection.binary),
+      0L, 1L
+    )
   )
 ```
 
@@ -389,24 +394,4 @@ saveRDS(
 )
 ```
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+`# the end`
