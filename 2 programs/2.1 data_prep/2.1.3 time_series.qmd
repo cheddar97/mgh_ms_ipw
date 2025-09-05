@@ -1,0 +1,150 @@
+---
+title: "Time Series for IgG and Infections"
+author: "Raphael Scheu, MD"
+format:
+  html:
+    embed-resources: true
+    toc: true
+    toc-location: left
+    toc-title: "Table of Contents"
+    toc-numbering: true
+    number-sections: true
+editor_options: 
+  chunk_output_type: console
+---
+
+```{=html}
+<style>
+body {
+text-align: justify}
+</style>
+```
+
+```{r, echo = FALSE}
+knitr::opts_chunk$set(message = FALSE)
+knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+options(scipen = 999)
+```
+
+# Load Data and Libraries
+
+```{r}
+library(librarian)
+shelf(
+  stringr,
+  lubridate,
+  data.table,
+  tidytable
+)
+
+data <- readRDS("./1 data/1.2 processed/data_clean.RDS")
+```
+
+# IgG Time Series
+
+## Extraction and Cleaning
+
+```{r}
+data.igg <- data |>
+  select(mrn, date.of.birth, igg.levels.on.current.therapy) |>
+  mutate(igg.levels.on.current.therapy = str_replace_all(igg.levels.on.current.therapy, "0, ", "\\), ")) |>
+  separate_rows(igg.levels.on.current.therapy, sep = "[.,]\\s*") |>
+  mutate(
+    igg.date = str_extract(igg.levels.on.current.therapy, "\\((.*?)\\)"),
+    igg.date = str_remove_all(igg.date, "[()]"), 
+    igg.levels.on.current.therapy = str_remove(igg.levels.on.current.therapy, "\\s*\\(.*?\\)\\s*"),
+    igg.levels.on.current.therapy = str_trim(igg.levels.on.current.therapy),
+    igg.date = str_trim(igg.date),
+    igg.levels.on.current.therapy = na_if(igg.levels.on.current.therapy, "n/a"),
+    igg.levels.on.current.therapy = ifelse(grepl(";", igg.levels.on.current.therapy), sub(";.*", "", igg.levels.on.current.therapy), igg.levels.on.current.therapy), 
+    igg.levels.on.current.therapy = ifelse(grepl(";", igg.levels.on.current.therapy), sub(".*;", "", igg.levels.on.current.therapy), igg.levels.on.current.therapy),
+    igg.levels.on.current.therapy = sub(" \\(.*", "", igg.levels.on.current.therapy)
+    #igg.on.ocrelizumab = as.integer(igg.on.ocrelizumab)
+  )
+```
+
+* The code above misses a few entries which were entered differently. These are corrected manually.
+* The first block corrects dates, the second corrects titer values, the third sets them to the correct variable type and removes missing entries.
+
+```{r}
+data.igg <- data.igg |>
+  mutate(
+    igg.date = str_replace(igg.date, "apr", "/4/"),
+    igg.date = str_replace(igg.date, "oct", "/10/"),
+    igg.date = str_replace(igg.date, "/(\\d{2})$", "/20\\1"),
+    igg.date = str_replace(igg.date, "20219", "2019"),
+    igg.date = str_replace(igg.date, "^0", ""),
+    igg.date = str_replace(igg.date, "1111", "11/11"),
+    igg.date = str_replace(igg.date, "6/10/26/28/2021", "6/10/2021"),
+    igg.date = str_replace(igg.date, "/202$", "/2022"),
+    igg.date = str_replace(igg.date, "/203$", "/2023"),
+    igg.date = str_replace(igg.date, "20212$", "2021"),
+    igg.date = str_replace(igg.date, "^224/", "2/24/"),
+    igg.date = str_replace(igg.date, "/0/", "/20/"),
+    igg.date = str_remove(igg.date, "1579 "),
+    igg.date = case_when(
+      str_detect(igg.levels.on.current.therapy, "95/11/2024") ~ "5/11/2024",
+      str_detect(igg.levels.on.current.therapy, "1291 5") ~ "5/30/2024",
+      str_detect(igg.levels.on.current.therapy, "1831 91/30/2020") ~ "1/30/2024",
+      str_detect(igg.levels.on.current.therapy, "month|year") ~ NA,
+      mrn == "10053711981" & igg.date == "860" ~ "2/3/2023",
+      #str_detect(igg.date, "^1324") ~ NA,
+      TRUE ~ igg.date
+    )
+  )
+
+data.igg <- data.igg |>
+  mutate(
+    igg.levels.on.current.therapy = str_remove(igg.levels.on.current.therapy, " mg/dl"),
+    igg.levels.on.current.therapy = str_remove(igg.levels.on.current.therapy, " 91/30/2020\\)"),
+    igg.levels.on.current.therapy = str_remove(igg.levels.on.current.therapy, " 5$"),
+    igg.levels.on.current.therapy = str_remove(igg.levels.on.current.therapy, " u.*"),
+    igg.levels.on.current.therapy = case_when(
+      str_detect(igg.levels.on.current.therapy, "^n") ~ NA,
+      str_detect(igg.levels.on.current.therapy, "190-") ~ "190",
+      str_detect(igg.levels.on.current.therapy, "95/11/2024") ~ "331",
+      str_detect(igg.levels.on.current.therapy, "811840") ~ "811",
+      str_detect(igg.levels.on.current.therapy, "919917") ~ "919",
+      str_detect(igg.levels.on.current.therapy, "594606") ~ "594",
+      str_detect(igg.levels.on.current.therapy, "11561257") ~ "1156",
+      str_detect(igg.levels.on.current.therapy, "008848") ~ NA,
+      str_detect(igg.levels.on.current.therapy, " 935") ~ "935",
+      str_detect(igg.levels.on.current.therapy, ">|<") ~ NA,
+      str_detect(igg.levels.on.current.therapy, "^[a-z]") ~ NA,
+      mrn == "10053711981" & igg.date == "2/3/2023" ~ "860",
+      TRUE ~ igg.levels.on.current.therapy
+    )
+  )
+
+
+data.igg <- data.igg |>
+  na.omit() |>
+  mutate(
+    igg.levels.on.current.therapy = as.integer(igg.levels.on.current.therapy),
+    igg.date = mdy(igg.date)
+  )
+```
+
+## Interpolation
+
+```{r}
+test_1 <- data.igg |>
+  group_by(mrn) |>
+  mutate(obs_no = n()) |>
+  ungroup()
+
+test_2 <- test_1 |>
+  count(obs_no)
+```
+
+# Infection Time Series
+
+
+
+
+
+
+
+
+
+
