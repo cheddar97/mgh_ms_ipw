@@ -1,0 +1,412 @@
+---
+title: "Data Cleaning"
+author: "Raphael Scheu, MD"
+format:
+  html:
+    embed-resources: true
+    toc: true
+    toc-location: left
+    toc-title: "Table of Contents"
+    toc-numbering: true
+    number-sections: true
+editor_options: 
+  chunk_output_type: console
+---
+
+```{=html}
+<style>
+body {
+text-align: justify}
+</style>
+```
+
+```{r, echo = FALSE}
+knitr::opts_chunk$set(message = FALSE)
+knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+options(scipen = 999)
+```
+
+# Load Data and Libraries
+
+```{r}
+library(librarian)
+shelf(
+  stringr,
+  lubridate,
+  data.table,
+  tidytable
+)
+
+data <- readRDS("./1 data/1.1 raw/data_merged.RDS") #|> filter(treatment.group == 1L)
+```
+
+# General Clean-Ups
+
+* Set all column contents to lower case for easier handling.
+* Define empty cells as NA.
+
+```{r}
+data <- data |>
+  mutate(
+    across(where(is.character), tolower),
+    across(where(is.character), str_trim),
+    across(where(is.character), ~na_if(., ""))
+  )
+```
+
+# Duplicates ?
+
+```{r}
+duplicates <- data |>
+  group_by(mrn) |>
+  filter(n() > 1) |>
+  ungroup()
+```
+
+# Demographics
+
+## Gender
+
+```{r}
+data <- data |>
+  mutate(
+    sex = case_when(
+      sex == "female" ~ "f",
+      sex == "male" ~ "m",
+      sex == "n" ~ "m",
+      str_detect(sex, "male") ~ "m",
+      TRUE ~ sex
+    )
+  )
+
+data |>
+  filter(is.na(sex)) |>
+  select(mrn, date.of.birth, date.of.entry, sex) |>
+  write.csv(
+    "./1 data/1.1 raw/missing_data.csv"
+  )
+```
+
+## Race
+
+```{r}
+data <- data |>
+  mutate(
+    race = case_when(
+      str_detect(race, "whi") ~ "white",
+      race == "unavailable" |
+        race == "unknown" |
+        race == "declined" ~ NA,
+      str_detect(race, "italian")   ~ "white",
+      str_detect(race, "^american") ~ "american indian",
+      str_detect(race, "black") ~ "black",
+      TRUE ~ race
+    )
+  )
+```
+
+## Age
+
+```{r}
+data$age <- as.integer(data$age)
+```
+
+# MS History
+
+## Age at Diagnosis
+```{r}
+data <- data |>
+  mutate(
+    age.at.ms.diagnosis = str_replace(
+      age.at.ms.diagnosis, "at most ", ""
+    ),
+    age.at.ms.diagnosis = case_when(
+      str_detect(age.at.ms.diagnosis, "early 20")  ~ "22",
+      str_detect(age.at.ms.diagnosis, "early 30")  ~ "32",
+      str_detect(age.at.ms.diagnosis, "early 40")  ~ "42",
+      str_detect(age.at.ms.diagnosis, "early 50")  ~ "52",
+      str_detect(age.at.ms.diagnosis, "early 60")  ~ "62",
+      str_detect(age.at.ms.diagnosis, "late 20")   ~ "28",
+      str_detect(age.at.ms.diagnosis, "late 30")   ~ "38",
+      str_detect(age.at.ms.diagnosis, "late 40")   ~ "48",
+      str_detect(age.at.ms.diagnosis, "suspected") ~ "62",
+      str_detect(age.at.ms.diagnosis, "her 20s")   ~ "25",
+      str_detect(age.at.ms.diagnosis, "mid 30s")   ~ "35",
+      str_detect(age.at.ms.diagnosis, "her 50s")   ~ "55",
+      str_detect(age.at.ms.diagnosis, "^40s$")     ~ "45",
+      str_detect(age.at.ms.diagnosis, "^30s$")     ~ "35",
+      str_detect(age.at.ms.diagnosis, "around 40") ~ "40",
+      str_detect(age.at.ms.diagnosis, "unknown|no records|n/a") ~ NA,
+      str_detect(age.at.ms.diagnosis, "between") ~ NA,
+      str_detect(age.at.ms.diagnosis, "in college") ~ NA,
+      str_detect(age.at.ms.diagnosis, "69") ~ "69",
+      TRUE ~ age.at.ms.diagnosis
+    ),
+    age.at.ms.diagnosis = as.integer(age.at.ms.diagnosis)
+  )
+```
+
+## MS Phenotype
+
+```{r}
+data <- data |>
+  mutate(
+   current.ms.phenotype = case_when(
+    is.na(current.ms.phenotype) ~ "unknown",
+    current.ms.phenotype == "none" ~ "unknown",
+    current.ms.phenotype == "unclear" ~ "unknown",
+    current.ms.phenotype == "no records" ~ "unknown",
+    str_detect(current.ms.phenotype, "suspected") ~ "unknown",
+    str_detect(current.ms.phenotype, "not specified") ~ "unknown",
+    str_detect(current.ms.phenotype, "^rrms") ~ "rrms",
+    str_detect(current.ms.phenotype, "rrsm") ~ "rrms",
+    str_detect(current.ms.phenotype, "^ppms") ~ "ppms",
+    str_detect(current.ms.phenotype, "progressive") ~ "ppms",
+    str_detect(current.ms.phenotype, "prms") ~ "ppms",
+    str_detect(current.ms.phenotype, "spms") ~ "spms",
+    TRUE ~ "other"
+    ) 
+  )
+```
+
+## EDSS
+
+* There are two variables in the data: baseline EDSS and most recently measured EDSS.
+* In total, 2 observations have an EDSS of "<3". It is assumed to be 2.
+
+```{r}
+data <- data |>
+  mutate(
+    edss.baseline = case_when(
+      str_detect(edss.baseline, "n.*a") ~ NA,
+      str_detect(edss.baseline, "<3") ~ "2",
+      TRUE ~ edss.baseline
+    ),
+    edss.most.recent. = case_when(
+      str_detect(edss.most.recent., "<3") ~ "2",
+      TRUE ~ edss.most.recent.
+    ),
+    edss.most.recent. = as.numeric(edss.most.recent.),
+    edss.baseline = as.numeric(edss.baseline)
+  )
+```
+
+# JCV Antibodies
+
+Clean the `jcv.antibody.status` column
+* Clean the categorical classification
+
+```{r}
+data <- data |>
+  mutate(
+    jcv.antibody.status = str_replace(
+      jcv.antibody.status, " \\(", ", "
+    ),
+    jcv.antibody.status = str_remove(
+      jcv.antibody.status, "\\)"
+    )
+  )
+```
+
+* Extract the titer values into a new column `jcv.antibody.titer`.
+* The first code block detects almost all titer values. The few it does not detect are transferred manually in the second code block.
+
+```{r}
+data <- data |>
+  mutate(
+    jcv.antibody.titer = str_extract(
+      jcv.antibody.status,
+      ", (.+)") |> str_remove(", "),
+    jcv.antibody.titer = str_replace_all(
+      jcv.antibody.titer, ",", "."
+    ),
+    jcv.antibody.titer = as.numeric(jcv.antibody.titer),
+    jcv.antibody.status = str_remove(
+      jcv.antibody.status, ", (.+)"
+    )
+  )
+
+data <- data |>
+  mutate(
+    jcv.antibody.titer = case_when(
+      str_detect(jcv.antibody.status, "1.47") ~ 1.47,
+      str_detect(jcv.antibody.status, "1.72") ~ 1.72,
+      str_detect(jcv.antibody.status, "2.84") ~ 2.84,
+      TRUE ~ jcv.antibody.titer
+    )
+  )
+```
+
+Then, the categorical `jcv.antibody.status` variable is cleaned.
+
+```{r}
+data <- data |>
+  mutate(
+    jcv.antibody.status = case_when(
+      jcv.antibody.status == "unknown" ~ NA,
+      str_detect(jcv.antibody.status, "^na|^ns") ~ NA,
+      str_starts(jcv.antibody.status, "^ind|^int") ~ "indeterminate",
+      str_detect(jcv.antibody.status, "pos")  ~ "positive",
+      str_detect(jcv.antibody.status, "1.72") ~ "positive",
+      str_detect(jcv.antibody.status, "neg")  ~ "negative",
+      str_detect(jcv.antibody.status, "non")  ~ "negative",
+      str_detect(jcv.antibody.status, "not")  ~ "negative",
+      TRUE ~ jcv.antibody.status
+    )
+  )
+```
+
+The categorical classification is further refined using the numerical titre values.
+
+```{r}
+data <- data |>
+  mutate(
+    jcv.antibody.status = case_when(
+      jcv.antibody.titer <  0.2  ~ "negative",
+      jcv.antibody.titer >= 0.2 &
+        jcv.antibody.titer < 0.4 ~ "indeterminate",
+      jcv.antibody.titer >= 0.4 &
+        jcv.antibody.titer < 1.5 ~ "positive",
+      jcv.antibody.titer >= 1.5  ~ "seropositive",
+      TRUE ~ jcv.antibody.status
+    )
+  )
+```
+
+# Medication History
+
+Cleaning of no. of prior therapeutics.
+
+```{r}
+data <- data |>
+  mutate(
+    no.of.prior.therapies = case_when(
+      no.of.prior.therapies == "1+" ~ "1",
+      no.of.prior.therapies == "n" ~ NA,
+      TRUE ~ no.of.prior.therapies
+    ),
+    no.of.prior.therapies = as.integer(no.of.prior.therapies)
+  )
+```
+
+# Person-Months under Observation
+## Discontinuation of Therapy
+
+```{r}
+data <- data |>
+  mutate(
+    therapy.discontinued = case_when(
+      str_detect(therapy.discontinued, "^n*.a$") ~ NA,
+      str_detect(therapy.discontinued, "unknown") ~ NA,
+      str_detect(therapy.discontinued, "^n") ~ "no",
+      str_detect(therapy.discontinued, "history") ~ "no",
+      str_detect(therapy.discontinued, "^was stop") ~ "no",
+      str_detect(therapy.discontinued, "^pause") ~ "no",
+      str_detect(therapy.discontinued, "maybe \\(") ~ "no",
+      str_detect(therapy.discontinued, "maybe") ~ "no",
+      str_detect(therapy.discontinued, "^y") ~ "yes",
+      str_detect(therapy.discontinued, "likely yes") ~ "yes",
+      TRUE ~ therapy.discontinued
+    )
+  )
+```
+
+# Infections
+
+## Binary Infection
+
+* What to do with NAs?
+
+```{r}
+data <- data |>
+  mutate(
+    infection.binary = case_when(
+      str_detect(infections.on.current.therapy, "^y")  ~ "1",
+      str_detect(infections.on.current.therapy, "^n")  ~ "0",
+      str_detect(infections.on.current.therapy, "uti") ~ "1",
+      str_detect(infections.on.current.therapy, "infect") ~ "1",
+      TRUE ~ infections.on.current.therapy
+    ),
+    infection.binary = as.integer(infection.binary)
+  )
+```
+
+## Infection Types
+
+```{r message = FALSE}
+n_recurrent <- "2"
+n_recurrent_uti <- "3"
+```
+
+* "Recurrent Infections" are not given a number in the data set. The following number of infections for the qualitative label "recurrent" are assumed.
+* Recurrent sepsis: ```r n_recurrent```
+* Recurrent UTI: ```r n_recurrent_uti```
+* Recurrent respiratory infection: ```r n_recurrent```
+* Recurrent "other" infections: ```r n_recurrent```
+
+```{r}
+fc_recur_infect <- function(column, n_recurrent = "2") {
+  data[[column]] <- fifelse(
+    data[[column]] == "recurrent",
+    n_recurrent,
+    data[[column]]
+  )
+  data[[column]] <- as.integer(data[[column]])
+}
+
+data$infection.uti <- fc_recur_infect("infection.uti", n_recurrent_uti)
+data$infection.sepsis <- fc_recur_infect("infection.sepsis")
+data$infection.lower.resp <- fc_recur_infect("infection.lower.resp")
+data$infection.upper.resp <- fc_recur_infect("infection.upper.resp")
+data$infection.other <- fc_recur_infect("infection.other")
+```
+
+## Hospitalised for Infection
+
+* I assume that NA in in the column `details.of.infection` means that they did not have a hospitalisation for infection.
+* yes/no is coded to 0/1 so that they can be more easily counted.
+
+```{r}
+data <- data |>
+  mutate(
+    hospitalized.for.infection = case_when(
+      str_detect(hospitalized.for.infection, "^y") ~ "1",
+      str_detect(hospitalized.for.infection, "^n") ~ "0",
+      is.na(details.of.infection) ~ "0",
+      TRUE ~ hospitalized.for.infection
+    ),
+    hospitalized.for.infection = as.integer(hospitalized.for.infection)
+  )
+```
+
+
+# Export File
+
+```{r}
+saveRDS(
+  data,
+  "./1 data/1.2 processed/data_clean.RDS"
+)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -155,6 +155,7 @@ data_ocre <- data_ocre |>
 ```{r}
 data_cont <- data_cont |>
   rename(
+    control.patient.no = x,
     mrn = epic_pmrn,
     discontinued.for.dmt = if.switch.off.of.most.recent.therapy.what.was.the.switch.dmt,
     infections.on.current.therapy = infections.during.current.therapy.,
@@ -181,6 +182,15 @@ fc_compare_colnames <- function(df1, df2) {
 }
 
 df_compare <- fc_compare_colnames(data_ocre, data_cont)
+```
+
+# Keep Only Inlcuded Patients
+
+```{r, warning = FALSE}
+data_cont <- data_cont |>
+  filter(!is.na(control.patient.no)) |>
+  mutate(control.patient.no = as.integer(control.patient.no)) |>
+  filter(!is.na(control.patient.no))
 ```
 
 # Merge Datasets
