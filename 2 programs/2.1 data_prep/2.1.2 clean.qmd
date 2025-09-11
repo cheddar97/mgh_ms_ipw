@@ -56,7 +56,7 @@ data <- data |>
 
 # Duplicates ?
 
-```{r}
+```{eval = F}
 duplicates <- data |>
   group_by(mrn) |>
   filter(n() > 1) |>
@@ -111,6 +111,22 @@ data <- data |>
 data$age <- as.integer(data$age)
 ```
 
+## Smoking
+
+```{r}
+data <- data |>
+  mutate(
+    smoking = case_when(
+      str_detect(smoking, "^fo") ~ "no",
+      str_detect(smoking, "^n")  ~ "no",
+      str_detect(smoking, "^y")  ~ "yes",
+      str_detect(smoking, "day")  ~ "yes",
+      str_detect(smoking, "stigma")  ~ NA,
+      TRUE ~ smoking
+    )
+  )
+```
+
 # MS History
 
 ## Age at Diagnosis
@@ -144,6 +160,12 @@ data <- data |>
     ),
     age.at.ms.diagnosis = as.integer(age.at.ms.diagnosis)
   )
+```
+
+## Duration of MS Diagnosis
+
+```{r}
+data <- data |> mutate(ms.duration = age - age.at.ms.diagnosis)
 ```
 
 ## MS Phenotype
@@ -275,17 +297,41 @@ data <- data |>
 
 # Medication History
 
+## Prior Therapies
+
 Cleaning of no. of prior therapeutics.
 
 ```{r}
 data <- data |>
   mutate(
     no.of.prior.therapies = case_when(
-      no.of.prior.therapies == "1+" ~ "1",
+      no.of.prior.therapies == "1+" ~ "2",
       no.of.prior.therapies == "n" ~ NA,
       TRUE ~ no.of.prior.therapies
     ),
     no.of.prior.therapies = as.integer(no.of.prior.therapies)
+  )
+```
+
+## Current Therapy Cycles
+
+* Clean the therapy cycles.
+* Not of much use though, as the number of cycles may differ significantly in the control group.
+
+```{r}
+test <- data |>
+  mutate(
+    no.therapy.cycles = str_remove(no.therapy.cycles, "at least "),
+    no.therapy.cycles = str_replace(no.therapy.cycles, " \\(.*", ""),
+    no.therapy.cycles = case_when(
+      no.therapy.cycles == "unknown" | no.therapy.cycles == "na" ~ NA,
+      str_detect(no.therapy.cycles, "^0") ~ "1",
+      str_detect(no.therapy.cycles, "[a-z]") ~ NA,
+      TRUE ~ no.therapy.cycles
+    ),
+    no.therapy.cycles = as.numeric(no.therapy.cycles),
+    no.therapy.cycles = round(no.therapy.cycles, digits = 0),
+    no.therapy.cycles = as.integer(no.therapy.cycles),
   )
 ```
 
@@ -324,15 +370,10 @@ data <- data |>
     infection.binary = case_when(
       str_detect(infections.on.current.therapy, "^y")  ~ "1",
       str_detect(infections.on.current.therapy, "^n")  ~ "0",
-      str_detect(infections.on.current.therapy, "uti") ~ "1",
-      str_detect(infections.on.current.therapy, "infect") ~ "1",
-      TRUE ~ infections.on.current.therapy
+      is.na(infections.on.current.therapy) ~ "0",
+      TRUE ~ "1"
     ),
     infection.binary = as.integer(infection.binary),
-    infection.binary = fifelse(
-      is.na(infection.binary),
-      0L, 1L
-    )
   )
 ```
 
@@ -381,6 +422,19 @@ data <- data |>
       TRUE ~ hospitalized.for.infection
     ),
     hospitalized.for.infection = as.integer(hospitalized.for.infection)
+  )
+```
+
+# Death
+
+```{r}
+data <- data |>
+  mutate(
+    death = case_when(
+      death == "n" ~ "0",
+      is.na(death) ~ "0",
+      TRUE ~ death
+    )
   )
 ```
 
