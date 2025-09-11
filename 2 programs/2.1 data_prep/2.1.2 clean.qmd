@@ -319,7 +319,7 @@ data <- data |>
 * Not of much use though, as the number of cycles may differ significantly in the control group.
 
 ```{r}
-test <- data |>
+data <- data |>
   mutate(
     no.therapy.cycles = str_remove(no.therapy.cycles, "at least "),
     no.therapy.cycles = str_replace(no.therapy.cycles, " \\(.*", ""),
@@ -359,7 +359,7 @@ data <- data |>
 
 # Infections
 
-## Binary Infection
+## Binary Infection Variables
 
 * 6 cases have `NA` in all infection related fields.
 * These are assumed to have `0` infection events.
@@ -374,6 +374,33 @@ data <- data |>
       TRUE ~ "1"
     ),
     infection.binary = as.integer(infection.binary),
+  )
+```
+
+This is also done for the infection subtype data. `NA` is assumed to be `0`.
+
+```{r}
+data <- data |>
+  mutate(
+    across(
+      c(
+        infection.uti,
+        infection.covid,
+        infection.lower.resp,
+        infection.upper.resp,
+        infection.softtissue,
+        infection.sepsis,
+        infection.other
+      ),
+      function(x) {
+        fifelse(
+          x == 0L | is.na(x),
+          0L,
+          1L
+        )
+      },
+      .names = "{.col}.binary"
+    )
   )
 ```
 
